@@ -1,5 +1,6 @@
 // Cloudflare Workers Telegram RSS Bot
 // 增强版本，修复订阅问题并添加新功能
+// 优化：2分钟检查频率 + 美化消息样式
 
 export default {
   async fetch(request, env, ctx) {
@@ -33,7 +34,7 @@ export default {
     return new Response('Not Found', { status: 404 });
   },
 
-  // 定时任务 - 每10分钟检查RSS
+  // 定时任务 - 每2分钟检查RSS
   async scheduled(event, env, ctx) {
     ctx.waitUntil(checkAllRSSFeeds(env));
   }
@@ -66,7 +67,7 @@ function getStatusPage() {
     <h2>📋 功能说明</h2>
     <ul>
         <li>📰 订阅RSS源自动推送</li>
-        <li>🔄 每10分钟自动检查更新</li>
+        <li>🔄 每2分钟自动检查更新</li>
         <li>👥 支持多用户同时使用</li>
         <li>💾 使用D1数据库存储订阅</li>
         <li>📦 支持批量订阅和取消订阅</li>
@@ -189,18 +190,40 @@ async function handleMessage(message, env) {
     if (text.startsWith('/start')) {
       const welcomeText = `🤖 欢迎使用RSS订阅机器人！
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 📋 基础命令：
-/subscribe <RSS_URL> - 订阅RSS源
-/unsubscribe <RSS_URL> - 取消订阅RSS源  
-/list - 查看我的订阅列表
+
+🔖 /subscribe <RSS_URL>
+   订阅RSS源
+
+🗑 /unsubscribe <RSS_URL>
+   取消订阅RSS源
+
+📰 /list
+   查看我的订阅列表
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📦 批量操作：
-/multi_subscribe - 批量订阅多个RSS源
-/multi_unsubscribe - 批量取消订阅
 
-🛠️ 管理命令：
-/clear_all - 清空所有订阅（需确认）
-/help - 查看详细帮助
+📥 /multi_subscribe
+   批量订阅多个RSS源
+
+📤 /multi_unsubscribe
+   批量取消订阅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🛠 管理命令：
+
+🗑 /clear_all
+   清空所有订阅（需确认）
+
+❓ /help
+   查看详细帮助
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💡 单个订阅示例：
 /subscribe https://example.com/rss.xml
@@ -211,7 +234,7 @@ https://example1.com/rss.xml
 https://example2.com/feed.xml
 https://example3.com/atom.xml
 
-开始添加你感兴趣的RSS源吧！`;
+🚀 开始添加你感兴趣的RSS源吧！`;
       
       await sendMessage(chatId, welcomeText, env);
     }
@@ -222,17 +245,25 @@ https://example3.com/atom.xml
     else if (text === '/multi_subscribe') {
       const helpText = `📦 批量订阅RSS源
 
-请按以下格式发送多个RSS链接（每行一个）：
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 使用方法：
+
+请按以下格式发送多个RSS链接
+（每行一个）：
 
 /multi_subscribe
 https://example1.com/rss.xml
 https://example2.com/feed.xml
 https://example3.com/atom.xml
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 💡 提示：
-- 每行一个RSS链接
-- 支持同时订阅多个源
-- 无效链接会自动跳过`;
+• 每行一个RSS链接
+• 支持同时订阅多个源
+• 无效链接会自动跳过
+• 机器人会逐个验证链接有效性`;
       
       await sendMessage(chatId, helpText, env);
     }
@@ -263,25 +294,52 @@ https://example3.com/atom.xml
     else if (text === '/help') {
       const helpText = `🤖 RSS订阅机器人完整指南
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 📋 基础订阅命令：
-• /subscribe <URL> - 订阅单个RSS源
-• /unsubscribe <URL> - 取消订阅单个RSS源
-• /list - 查看所有订阅
+
+🔖 /subscribe <URL>
+   订阅单个RSS源
+
+🗑 /unsubscribe <URL>
+   取消订阅单个RSS源
+
+📰 /list
+   查看所有订阅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📦 批量操作：
-• /multi_subscribe - 批量订阅（输入命令后会显示使用方法）
-• /multi_unsubscribe - 批量取消订阅（会显示当前订阅列表供选择）
 
-🛠️ 管理命令：
-• /clear_all - 清空所有订阅（需要确认）
-• /help - 显示此帮助信息
-• /start - 显示欢迎信息
+📥 /multi_subscribe
+   批量订阅（输入命令后会显示使用方法）
+
+📤 /multi_unsubscribe
+   批量取消订阅（会显示当前订阅列表供选择）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🛠 管理命令：
+
+🗑 /clear_all
+   清空所有订阅（需要确认）
+
+❓ /help
+   显示此帮助信息
+
+🏠 /start
+   显示欢迎信息
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💡 使用技巧：
-1. RSS链接必须以http或https开头
-2. 机器人每10分钟自动检查更新
-3. 支持RSS和Atom格式
-4. 批量操作可以节省时间
+
+• RSS链接必须以http或https开头
+• 机器人每2分钟自动检查更新
+• 支持RSS和Atom格式
+• 批量操作可以节省时间
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ❓ 遇到问题？
 请确保RSS链接有效且可访问。`;
@@ -291,14 +349,22 @@ https://example3.com/atom.xml
     else {
       await sendMessage(chatId, `❓ 未知命令: ${text}
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 请使用以下命令：
-• /start - 查看欢迎信息
-• /help - 查看详细帮助
-• /list - 查看订阅列表`, env);
+
+🏠 /start
+   查看欢迎信息
+
+❓ /help
+   查看详细帮助
+
+📰 /list
+   查看订阅列表`, env);
     }
   } catch (error) {
     console.error('消息处理错误:', error);
-    await sendMessage(chatId, '抱歉，处理您的请求时出现错误，请稍后重试。', env);
+    await sendMessage(chatId, '❌ 抱歉，处理您的请求时出现错误，请稍后重试。', env);
   }
 }
 
@@ -307,7 +373,14 @@ async function subscribeRSS(chatId, userId, rssUrl, env) {
   try {
     // 验证URL格式
     if (!rssUrl || !rssUrl.startsWith('http')) {
-      await sendMessage(chatId, '❌ 请提供有效的RSS URL（需要以http或https开头）', env);
+      await sendMessage(chatId, `❌ 请提供有效的RSS URL
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ URL需要以http或https开头
+
+💡 正确示例：
+https://example.com/rss.xml`, env);
       return;
     }
     
@@ -317,24 +390,122 @@ async function subscribeRSS(chatId, userId, rssUrl, env) {
     `).bind(chatId, rssUrl).first();
     
     if (existingResult.count > 0) {
-      await sendMessage(chatId, '❌ 您已经订阅过这个RSS源了', env);
+      await sendMessage(chatId, `❌ 您已经订阅过这个RSS源了
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 RSS链接：
+${rssUrl}
+
+💡 使用 /list 查看所有订阅`, env);
       return;
     }
     
-    // 验证RSS源
-    const response = await fetch(rssUrl, {
-      headers: { 'User-Agent': 'TelegramRSSBot/1.0' },
-      timeout: 10000
-    });
+    // 验证RSS源 - 增强兼容性
+    let response;
+    try {
+      // 首先尝试标准请求
+      response = await fetch(rssUrl, {
+        headers: { 
+          'User-Agent': 'TelegramRSSBot/1.0',
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+          'Cache-Control': 'no-cache'
+        },
+        timeout: 15000
+      });
+      
+      // 如果失败，尝试不同的User-Agent
+      if (!response.ok) {
+        response = await fetch(rssUrl, {
+          headers: { 
+            'User-Agent': 'Mozilla/5.0 (compatible; RSS Reader)',
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+          },
+          timeout: 15000
+        });
+      }
+      
+      // 如果还是失败，尝试最简单的请求
+      if (!response.ok) {
+        response = await fetch(rssUrl, {
+          timeout: 15000
+        });
+      }
+    } catch (fetchError) {
+      await sendMessage(chatId, `❌ 网络请求失败
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 RSS链接：
+${rssUrl}
+
+🔍 错误信息：${fetchError.message}
+
+💡 可能原因：
+• 网络连接问题
+• 请求超时
+• 服务器暂时不可用
+
+🔧 建议：
+• 稍后重试
+• 检查链接是否完整正确`, env);
+      return;
+    }
     
     if (!response.ok) {
-      await sendMessage(chatId, `❌ 无法访问RSS源: ${rssUrl}\n状态码: ${response.status}`, env);
+      let errorMessage = `❌ 无法访问RSS源
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 RSS链接：
+${rssUrl}
+
+🔍 状态码：${response.status}
+📄 状态文本：${response.statusText}`;
+
+      // 根据状态码提供具体建议
+      if (response.status === 404) {
+        errorMessage += `\n\n💡 404错误建议：
+• 检查URL路径是否正确
+• 确认RSS服务是否正常运行
+• 验证频道/资源是否存在
+• 可能存在User-Agent限制`;
+      } else if (response.status === 403) {
+        errorMessage += `\n\n💡 403错误建议：
+• 检查RSS源访问权限
+• 确认频道是否为公开频道
+• 可能需要特定的请求头`;
+      } else if (response.status === 429) {
+        errorMessage += `\n\n💡 429错误建议：
+• 请求频率过高，请稍后重试
+• RSS源可能有访问限制`;
+      } else if (response.status >= 500) {
+        errorMessage += `\n\n💡 服务器错误建议：
+• RSS服务可能暂时不可用
+• 请稍后重试`;
+      }
+
+      errorMessage += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 调试建议：
+• 在浏览器中直接访问该链接
+• 检查是否有User-Agent限制
+• 尝试稍后重新订阅`;
+
+      await sendMessage(chatId, errorMessage, env);
       return;
     }
     
     const rssContent = await response.text();
     if (!rssContent.includes('<rss') && !rssContent.includes('<feed') && !rssContent.includes('<channel>')) {
-      await sendMessage(chatId, '❌ 该URL不是有效的RSS或Atom格式', env);
+      await sendMessage(chatId, `❌ 该URL不是有效的RSS或Atom格式
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 链接：
+${rssUrl}
+
+💡 请确保链接指向RSS或Atom订阅源`, env);
       return;
     }
     
@@ -347,21 +518,43 @@ async function subscribeRSS(chatId, userId, rssUrl, env) {
     if (result.success) {
       // 初始化RSS缓存
       await env.RSS_CACHE.put(`last_check_${btoa(rssUrl)}`, Date.now().toString());
-      await sendMessage(chatId, `✅ 成功订阅RSS:\n${rssUrl}`, env);
+      await sendMessage(chatId, `✅ 成功订阅RSS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 RSS源：
+${rssUrl}
+
+🔄 机器人每2分钟检查更新
+📰 有新文章会自动推送`, env);
     } else {
       await sendMessage(chatId, '❌ 订阅失败，请稍后重试', env);
     }
     
   } catch (error) {
     console.error('订阅RSS错误:', error);
-    await sendMessage(chatId, '❌ 订阅失败，请检查RSS URL是否正确', env);
+    await sendMessage(chatId, `❌ 订阅失败
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 请检查：
+• RSS URL是否正确
+• 网络连接是否正常
+• RSS源是否可访问`, env);
   }
 }
 
 // 批量订阅RSS
 async function multiSubscribeRSS(chatId, userId, urls, env) {
   if (urls.length === 0) {
-    await sendMessage(chatId, '❌ 请提供要订阅的RSS链接', env);
+    await sendMessage(chatId, `❌ 请提供要订阅的RSS链接
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 正确格式：
+/multi_subscribe
+https://example1.com/rss.xml
+https://example2.com/feed.xml`, env);
     return;
   }
   
@@ -369,7 +562,12 @@ async function multiSubscribeRSS(chatId, userId, urls, env) {
   let failedUrls = [];
   let duplicateUrls = [];
   
-  await sendMessage(chatId, `🔄 开始批量订阅 ${urls.length} 个RSS源，请稍候...`, env);
+  await sendMessage(chatId, `🔄 开始批量订阅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 总数：${urls.length} 个RSS源
+⏱ 正在逐个验证，请稍候...`, env);
   
   for (const url of urls) {
     const trimmedUrl = url.trim();
@@ -389,11 +587,40 @@ async function multiSubscribeRSS(chatId, userId, urls, env) {
         continue;
       }
       
-      // 验证RSS源
-      const response = await fetch(trimmedUrl, {
-        headers: { 'User-Agent': 'TelegramRSSBot/1.0' },
-        timeout: 10000
-      });
+      // 验证RSS源 - 增强兼容性
+      let response;
+      try {
+        // 首先尝试标准请求
+        response = await fetch(trimmedUrl, {
+          headers: { 
+            'User-Agent': 'TelegramRSSBot/1.0',
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+            'Cache-Control': 'no-cache'
+          },
+          timeout: 15000
+        });
+        
+        // 如果失败，尝试不同的User-Agent
+        if (!response.ok) {
+          response = await fetch(trimmedUrl, {
+            headers: { 
+              'User-Agent': 'Mozilla/5.0 (compatible; RSS Reader)',
+              'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+            },
+            timeout: 15000
+          });
+        }
+        
+        // 如果还是失败，尝试最简单的请求
+        if (!response.ok) {
+          response = await fetch(trimmedUrl, {
+            timeout: 15000
+          });
+        }
+      } catch (fetchError) {
+        failedUrls.push(`${trimmedUrl} (网络错误: ${fetchError.message})`);
+        continue;
+      }
       
       if (!response.ok) {
         failedUrls.push(`${trimmedUrl} (状态码: ${response.status})`);
@@ -427,18 +654,24 @@ async function multiSubscribeRSS(chatId, userId, urls, env) {
     }
   }
   
-  let resultMessage = `📊 批量订阅完成！\n\n✅ 成功订阅: ${successCount} 个`;
+  let resultMessage = `📊 批量订阅完成！
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ 成功订阅：${successCount} 个`;
   
   if (duplicateUrls.length > 0) {
-    resultMessage += `\n🔄 已订阅: ${duplicateUrls.length} 个`;
+    resultMessage += `\n🔄 已订阅：${duplicateUrls.length} 个`;
   }
   
   if (failedUrls.length > 0) {
-    resultMessage += `\n❌ 失败: ${failedUrls.length} 个`;
+    resultMessage += `\n❌ 失败：${failedUrls.length} 个`;
     if (failedUrls.length <= 5) {
-      resultMessage += '\n\n失败详情:\n' + failedUrls.map(url => `• ${url}`).join('\n');
+      resultMessage += '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n失败详情：\n' + failedUrls.map(url => `• ${url}`).join('\n');
     }
   }
+  
+  resultMessage += '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🔄 机器人每2分钟检查更新';
   
   await sendMessage(chatId, resultMessage, env);
 }
@@ -453,21 +686,34 @@ async function showUnsubscribeOptions(chatId, env) {
     `).bind(chatId).all();
     
     if (result.results.length === 0) {
-      await sendMessage(chatId, '📋 您还没有订阅任何RSS源', env);
+      await sendMessage(chatId, `📋 您还没有订阅任何RSS源
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 使用以下命令开始订阅：
+🔖 /subscribe <URL> - 订阅单个RSS源
+📥 /multi_subscribe - 批量订阅`, env);
       return;
     }
     
     let message = `📦 批量取消订阅
 
-请按以下格式发送要取消的RSS链接（每行一个）：
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 使用方法：
+
+请按以下格式发送要取消的RSS链接
+（每行一个）：
 
 /multi_unsubscribe
 ${result.results.slice(0, 10).map(sub => sub.rss_url).join('\n')}
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 💡 提示：
-- 复制上面的链接，删除不需要取消的
-- 每行一个RSS链接
-- 或使用 /clear_all 清空所有订阅`;
+• 复制上面的链接，删除不需要取消的
+• 每行一个RSS链接
+• 或使用 /clear_all 清空所有订阅`;
     
     await sendMessage(chatId, message, env);
   } catch (error) {
@@ -479,7 +725,14 @@ ${result.results.slice(0, 10).map(sub => sub.rss_url).join('\n')}
 // 批量取消订阅
 async function multiUnsubscribeRSS(chatId, urls, env) {
   if (urls.length === 0) {
-    await sendMessage(chatId, '❌ 请提供要取消订阅的RSS链接', env);
+    await sendMessage(chatId, `❌ 请提供要取消订阅的RSS链接
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 正确格式：
+/multi_unsubscribe
+https://example1.com/rss.xml
+https://example2.com/feed.xml`, env);
     return;
   }
   
@@ -505,10 +758,14 @@ async function multiUnsubscribeRSS(chatId, urls, env) {
     }
   }
   
-  let resultMessage = `📊 批量取消订阅完成！\n\n✅ 成功取消: ${successCount} 个`;
+  let resultMessage = `📊 批量取消订阅完成！
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ 成功取消：${successCount} 个`;
   
   if (notFoundUrls.length > 0) {
-    resultMessage += `\n❌ 未找到: ${notFoundUrls.length} 个`;
+    resultMessage += `\n❌ 未找到：${notFoundUrls.length} 个`;
   }
   
   await sendMessage(chatId, resultMessage, env);
@@ -522,18 +779,28 @@ async function confirmClearAll(chatId, env) {
     `).bind(chatId).first();
     
     if (result.count === 0) {
-      await sendMessage(chatId, '📋 您当前没有任何订阅', env);
+      await sendMessage(chatId, `📋 您当前没有任何订阅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 使用以下命令开始订阅：
+🔖 /subscribe <URL> - 订阅单个RSS源
+📥 /multi_subscribe - 批量订阅`, env);
       return;
     }
     
     const confirmMessage = `⚠️ 确认清空所有订阅
 
-您当前有 ${result.count} 个RSS订阅。
+━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-此操作将删除所有订阅，无法撤销！
+📊 当前订阅数量：${result.count} 个
 
-如需确认，请发送: /confirm_clear_all
-如需取消，请发送其他任意消息。`;
+⚠️ 此操作将删除所有订阅，无法撤销！
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ 确认清空：/confirm_clear_all
+❌ 取消操作：发送其他任意消息`;
     
     await sendMessage(chatId, confirmMessage, env);
   } catch (error) {
@@ -549,7 +816,13 @@ async function clearAllSubscriptions(chatId, env) {
       DELETE FROM subscriptions WHERE chat_id = ?
     `).bind(chatId).run();
     
-    await sendMessage(chatId, `✅ 已清空所有订阅 (共删除 ${result.changes} 个)`, env);
+    await sendMessage(chatId, `✅ 已清空所有订阅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 共删除：${result.changes} 个订阅
+
+💡 可以重新开始订阅RSS源`, env);
   } catch (error) {
     console.error('清空订阅错误:', error);
     await sendMessage(chatId, '❌ 清空失败，请稍后重试', env);
@@ -564,9 +837,21 @@ async function unsubscribeRSS(chatId, rssUrl, env) {
     `).bind(chatId, rssUrl).run();
     
     if (result.changes > 0) {
-      await sendMessage(chatId, `✅ 已取消订阅:\n${rssUrl}`, env);
+      await sendMessage(chatId, `✅ 已取消订阅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 RSS源：
+${rssUrl}`, env);
     } else {
-      await sendMessage(chatId, '❌ 未找到该订阅', env);
+      await sendMessage(chatId, `❌ 未找到该订阅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 RSS源：
+${rssUrl}
+
+💡 使用 /list 查看当前订阅`, env);
     }
   } catch (error) {
     console.error('取消订阅错误:', error);
@@ -586,22 +871,45 @@ async function listSubscriptions(chatId, env) {
     if (result.results.length === 0) {
       await sendMessage(chatId, `📋 您还没有订阅任何RSS源
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 💡 使用方法：
-• /subscribe <URL> - 订阅单个RSS源
-• /multi_subscribe - 批量订阅多个RSS源`, env);
+
+🔖 /subscribe <URL>
+   订阅单个RSS源
+
+📥 /multi_subscribe
+   批量订阅多个RSS源`, env);
       return;
     }
     
-    let message = `📋 您的RSS订阅列表 (${result.results.length}个):\n\n`;
+    let message = `📋 您的RSS订阅列表
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 总数：${result.results.length} 个订阅\n\n`;
+    
     result.results.forEach((sub, index) => {
       const date = new Date(sub.created_at + 'Z').toLocaleDateString('zh-CN');
-      message += `${index + 1}. ${sub.rss_url}\n📅 ${date}\n\n`;
+      message += `${index + 1}. ${sub.rss_url}\n📅 订阅时间：${date}\n\n`;
     });
     
-    message += `🛠️ 管理订阅：
-• /unsubscribe <URL> - 取消单个订阅
-• /multi_unsubscribe - 批量取消订阅
-• /clear_all - 清空所有订阅`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🛠 管理订阅：
+
+🗑 /unsubscribe <URL>
+   取消单个订阅
+
+📤 /multi_unsubscribe
+   批量取消订阅
+
+🗑 /clear_all
+   清空所有订阅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔄 机器人每2分钟检查更新`;
     
     await sendMessage(chatId, message, env);
     
@@ -642,11 +950,11 @@ async function checkRSSFeed(rssUrl, env) {
   const lastItemsKey = `last_items_${btoa(rssUrl)}`;
   
   try {
-    // 检查频率控制
+    // 检查频率控制 - 改为2分钟（120000毫秒）
     const lastCheck = await env.RSS_CACHE.get(lastCheckKey);
     const now = Date.now();
     
-    if (lastCheck && (now - parseInt(lastCheck)) < 300000) { // 5分钟内不重复检查
+    if (lastCheck && (now - parseInt(lastCheck)) < 120000) { // 2分钟内不重复检查
       return;
     }
     
@@ -770,7 +1078,7 @@ async function notifySubscribers(rssUrl, newItems, env) {
     
     for (const row of result.results) {
       for (const item of newItems) {
-        const message = formatArticleMessage(item);
+        const message = formatArticleMessage(item, rssUrl);
         await sendMessage(row.chat_id, message, env);
         
         // 控制发送频率
@@ -783,22 +1091,32 @@ async function notifySubscribers(rssUrl, newItems, env) {
 }
 
 // 格式化文章消息
-function formatArticleMessage(item) {
-  // 使用纯文本格式，避免HTML解析问题
-  let message = `📰 新文章推送\n\n`;
-  message += `📝 ${cleanMessageText(item.title)}\n\n`;
+function formatArticleMessage(item, rssUrl) {
+  // 使用美化的文章推送格式
+  let message = `📰 新文章推送
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 标题：
+${cleanMessageText(item.title)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━`;
   
   if (item.description && item.description.length > 0) {
     const desc = cleanMessageText(item.description);
     const shortDesc = desc.length > 150 ? desc.substring(0, 150) + '...' : desc;
-    message += `📄 ${shortDesc}\n\n`;
+    message += `\n\n📄 摘要：\n${shortDesc}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━`;
   }
   
-  message += `🔗 ${item.link}`;
+  message += `\n\n🔗 链接：\n${item.link}`;
   
   if (item.pubDate) {
-    message += `\n⏰ ${cleanMessageText(item.pubDate)}`;
+    message += `\n\n⏰ 发布时间：\n${cleanMessageText(item.pubDate)}`;
   }
+  
+  // 添加RSS源信息
+  const shortUrl = rssUrl.length > 50 ? rssUrl.substring(0, 50) + '...' : rssUrl;
+  message += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📡 来源：${shortUrl}`;
   
   return message;
 }
