@@ -16,8 +16,8 @@ telegram-rss-bot/
 
 ### 展示图
 
-![CFRSS](https://meee.com.tw/ZiIYelX)
-![CFRSS1](https://meee.com.tw/L6VxK1g)
+![CFRSS](https://i.meee.com.tw/ZiIYelX.png)
+![CFRSS1](https://i.meee.com.tw/L6VxK1g.png)
 
 
 ## 功能特性
