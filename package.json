@@ -1,0 +1,17 @@
+{
+  "name": "telegram-rss-bot",
+  "version": "1.0.0",
+  "description": "Telegram RSS subscription bot deployed on Cloudflare Workers",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production"
+  },
+  "keywords": ["telegram", "rss", "bot", "cloudflare", "workers"],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
