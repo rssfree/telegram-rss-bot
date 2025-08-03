@@ -2,6 +2,24 @@
 
 一个部署在 Cloudflare Workers 上的 Telegram RSS 订阅机器人。
 
+```
+telegram-rss-bot/
+├── src/
+│   └── index.js          ✅
+├── migrations/
+│   └── 0001_initial.sql  ✅
+├── package.json          ✅
+├── wrangler.toml         ✅ (已编辑ID)
+├── README.md             ✅
+└── .gitignore            ✅
+```
+
+### 展示图
+
+![CFRSS](https://meee.com.tw/ZiIYelX)
+![CFRSS1](https://meee.com.tw/L6VxK1g)
+
+
 ## 功能特性
 
 - 📰 RSS/Atom 源订阅管理
@@ -74,30 +92,14 @@
 2. 名称: `telegram-rss-cache`
 3. Namespace ID: `_________________________`
 
-## ✅ GitHub 仓库创建
-
-### 仓库设置
-- [ ] 创建仓库: `telegram-rss-bot`
-- [ ] 设置为 Public
-- [ ] 仓库 URL: `_________________________`
-
-### 文件上传清单
-- [ ] `src/index.js` (主代码文件)
-- [ ] `package.json` (项目配置)
-- [ ] `wrangler.toml` (更新 ID)
-- [ ] `migrations/0001_initial.sql` (数据库结构)
-- [ ] `README.md` (说明文档)
-- [ ] `.gitignore` (忽略文件)
-
 ## ✅ Cloudflare 部署
 
-### Pages 部署
-1. Workers & Pages > Create > Pages > Connect to Git
-2. 选择 `telegram-rss-bot` 仓库
-3. Project name: `telegram-rss-bot`
-4. Deploy
+### workers 部署
+1. Workers & Pages > Create > workers
+2. 到GitHub中telegram-rss-bot项目中
+3. 复制`src/index.js`中代码到cloudflare workers中
 
-### 资源绑定
+### cloudflare D1、KV资源绑定
 **D1 绑定:**
 - Variable name: `DB`
 - Database: `telegram-rss-db`
@@ -107,10 +109,8 @@
 - Namespace: `telegram-rss-cache`
 
 ### 环境变量
-- Name: `TELEGRAM_BOT_TOKEN`
+- Variable name: `TELEGRAM_BOT_TOKEN`
 - Value: (你的 Bot Token)
-- Environment: Production
-- Encrypt: ✅
 
 ### 数据库初始化
 1. D1 Console
@@ -133,7 +133,7 @@ https://api.telegram.org/bot[BOT_TOKEN]/getWebhookInfo
 
 ## ✅ 测试功能
 
-### 基本测试
+### Telegram bot中测试
 - [ ] 发送 `/start` 
 - [ ] 发送 `/subscribe https://feeds.feedburner.com/oreilly/radar`
 - [ ] 发送 `/list`
@@ -161,10 +161,8 @@ database_id = "你的D1_DATABASE_ID"
 
 ### 测试 RSS 源列表:
 ```
-https://feeds.feedburner.com/oreilly/radar (O'Reilly)
 https://feeds.bbci.co.uk/news/rss.xml (BBC News)
 https://www.reddit.com/.rss (Reddit)
-https://github.com/trending.atom (GitHub Trending)
 ```
 
 ### 常用 Webhook 命令:
@@ -178,20 +176,3 @@ https://api.telegram.org/bot<TOKEN>/getWebhookInfo
 # 删除 Webhook
 https://api.telegram.org/bot<TOKEN>/deleteWebhook
 ```
-```
-telegram-rss-bot/
-├── src/
-│   └── index.js          ✅
-├── migrations/
-│   └── 0001_initial.sql  ✅
-├── package.json          ✅
-├── wrangler.toml         ✅ (已编辑ID)
-├── README.md             ✅
-└── .gitignore            ✅
-```
-对于这个Telegram RSS Bot项目，部署到 Cloudflare Workers：
-
-1. 处理Telegram webhook - 动态API响应
-2. 定时任务 - Cron triggers执行RSS检查
-3. 数据库操作 - D1数据库读写
-4. 外部API调用 - 获取RSS内容，发送Telegram消息
