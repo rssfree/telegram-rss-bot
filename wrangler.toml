@@ -5,13 +5,13 @@ compatibility_date = "2024-01-15"
 # KV存储绑定
 [[kv_namespaces]]
 binding = "RSS_CACHE"
-id = "f7de55d4e0d7496b87801f71fe785e98"
+id = "wsde53r4e0d749ws387801fdse785e23" #你从Cloudflare复制的KV Namespace ID
 
 # D1数据库绑定
 [[d1_databases]]
 binding = "DB"
 database_name = "telegram-rss-db"
-database_id = "e9b66573-74b1-4464-a73b-635aaa19736e"
+database_id = "e966666-74b1-3332-a33we-635ass19236e" #你从Cloudflare复制的D1 Database ID
 
 # 定时任务 - 每10分钟检查RSS
 [triggers]
@@ -23,9 +23,9 @@ name = "telegram-rss-bot-prod"
 
 [[env.production.kv_namespaces]]
 binding = "RSS_CACHE"
-id = "f7de55d4e0d7496b87801f71fe785e98"
+id = "wsde53r4e0d749ws387801fdse785e23"
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "telegram-rss-db-prod"
-database_id = "e9b66573-74b1-4464-a73b-635aaa19736e"
+database_id = "e966666-74b1-3332-a33we-635ass19236e"
