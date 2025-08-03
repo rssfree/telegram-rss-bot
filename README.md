@@ -5,7 +5,7 @@
 ## 功能特性
 
 - 📰 RSS/Atom 源订阅管理
-- 🔄 自动定时检查更新（每10分钟）
+- 🔄 自动定时检查更新（每2分钟）
 - 👥 多用户支持
 - 💾 使用 D1 数据库持久化存储
 - 🚀 完全无服务器架构
@@ -47,105 +47,108 @@
 
 `/list`
 
-## 部署方法：
+## Cloudflare部署方法：
 
-🚀 快速开始清单
-✅ 部署前准备
-1. Telegram Bot Token
+# 🚀 快速开始清单
 
- 与 @BotFather 对话
- 发送 /newbot
- 保存 Bot Token: _________________________
+## ✅ 部署前准备
 
-2. Cloudflare 账号
+### 1. Telegram Bot Token
+- [ ] 与 @BotFather 对话
+- [ ] 发送 `/newbot`
+- [ ] 保存 Bot Token: `_________________________`
 
- 注册 cloudflare.com 账号
- 完成邮箱验证
+### 2. Cloudflare 账号
+- [ ] 注册 cloudflare.com 账号
+- [ ] 完成邮箱验证
 
-✅ 创建 Cloudflare 资源
-D1 数据库
+## ✅ 创建 Cloudflare 资源
 
-Cloudflare Dashboard > Workers & Pages > D1
-Create database: telegram-rss-db
-Database ID: _________________________
+### D1 数据库
+1. Cloudflare Dashboard > Workers & Pages > D1
+2. Create database: `telegram-rss-db`  
+3. Database ID: `_________________________`
 
-KV 命名空间
+### KV 命名空间  
+1. Workers & Pages > KV > Create namespace
+2. 名称: `telegram-rss-cache`
+3. Namespace ID: `_________________________`
 
-Workers & Pages > KV > Create namespace
-名称: telegram-rss-cache
-Namespace ID: _________________________
+## ✅ GitHub 仓库创建
 
-✅ GitHub 仓库创建
-仓库设置
+### 仓库设置
+- [ ] 创建仓库: `telegram-rss-bot`
+- [ ] 设置为 Public
+- [ ] 仓库 URL: `_________________________`
 
- 创建仓库: telegram-rss-bot
- 设置为 Public
- 仓库 URL: _________________________
+### 文件上传清单
+- [ ] `src/index.js` (主代码文件)
+- [ ] `package.json` (项目配置)
+- [ ] `wrangler.toml` (更新 ID)
+- [ ] `migrations/0001_initial.sql` (数据库结构)
+- [ ] `README.md` (说明文档)
+- [ ] `.gitignore` (忽略文件)
 
-文件上传清单
+## ✅ Cloudflare 部署
 
- src/index.js (主代码文件)
- package.json (项目配置)
- wrangler.toml (更新 ID)
- migrations/0001_initial.sql (数据库结构)
- README.md (说明文档)
- .gitignore (忽略文件)
+### Pages 部署
+1. Workers & Pages > Create > Pages > Connect to Git
+2. 选择 `telegram-rss-bot` 仓库
+3. Project name: `telegram-rss-bot`
+4. Deploy
 
-✅ Cloudflare 部署
-Pages 部署
+### 资源绑定
+**D1 绑定:**
+- Variable name: `DB`
+- Database: `telegram-rss-db`
 
-Workers & Pages > Create > Pages > Connect to Git
-选择 telegram-rss-bot 仓库
-Project name: telegram-rss-bot
-Deploy
+**KV 绑定:**  
+- Variable name: `RSS_CACHE`
+- Namespace: `telegram-rss-cache`
 
-资源绑定
-D1 绑定:
+### 环境变量
+- Name: `TELEGRAM_BOT_TOKEN`
+- Value: (你的 Bot Token)
+- Environment: Production
+- Encrypt: ✅
 
-Variable name: DB
-Database: telegram-rss-db
+### 数据库初始化
+1. D1 Console
+2. 执行 `migrations/0001_initial.sql` 内容
 
-KV 绑定:
+## ✅ Webhook 设置
 
-Variable name: RSS_CACHE
-Namespace: telegram-rss-cache
+### Worker URL
+`https://telegram-rss-bot.your-subdomain.workers.dev`
 
-环境变量
-
-Name: TELEGRAM_BOT_TOKEN
-Value: (你的 Bot Token)
-Environment: Production
-Encrypt: ✅
-
-数据库初始化
-
-D1 Console
-执行 migrations/0001_initial.sql 内容
-
-✅ Webhook 设置
-Worker URL
-https://telegram-rss-bot.your-subdomain.workers.dev
-设置命令（浏览器访问）
+### 设置命令（浏览器访问）
+```
 https://api.telegram.org/bot[BOT_TOKEN]/setWebhook?url=https://[WORKER_URL]/webhook
-验证命令（浏览器访问）
+```
+
+### 验证命令（浏览器访问）
+```
 https://api.telegram.org/bot[BOT_TOKEN]/getWebhookInfo
-✅ 测试功能
-基本测试
+```
 
- 发送 /start
- 发送 /subscribe https://feeds.feedburner.com/oreilly/radar
- 发送 /list
- 等待 RSS 推送
+## ✅ 测试功能
 
-状态检查
+### 基本测试
+- [ ] 发送 `/start` 
+- [ ] 发送 `/subscribe https://feeds.feedburner.com/oreilly/radar`
+- [ ] 发送 `/list`
+- [ ] 等待 RSS 推送
 
- 访问: https://your-worker-url.workers.dev/
- 访问: https://your-worker-url.workers.dev/setup
- 访问: https://your-worker-url.workers.dev/check-rss
+### 状态检查
+- [ ] 访问: `https://your-worker-url.workers.dev/`
+- [ ] 访问: `https://your-worker-url.workers.dev/setup`
+- [ ] 访问: `https://your-worker-url.workers.dev/check-rss`
 
-🔧 关键配置复制区
-wrangler.toml 需要替换的内容:
-toml# 替换这些 ID
+## 🔧 关键配置复制区
+
+### wrangler.toml 需要替换的内容:
+```toml
+# 替换这些 ID
 [[kv_namespaces]]
 binding = "RSS_CACHE"
 id = "你的KV_NAMESPACE_ID"
@@ -154,13 +157,19 @@ id = "你的KV_NAMESPACE_ID"
 binding = "DB" 
 database_name = "telegram-rss-db"
 database_id = "你的D1_DATABASE_ID"
-测试 RSS 源列表:
+```
+
+### 测试 RSS 源列表:
+```
 https://feeds.feedburner.com/oreilly/radar (O'Reilly)
 https://feeds.bbci.co.uk/news/rss.xml (BBC News)
 https://www.reddit.com/.rss (Reddit)
 https://github.com/trending.atom (GitHub Trending)
-常用 Webhook 命令:
-bash# 设置 Webhook
+```
+
+### 常用 Webhook 命令:
+```bash
+# 设置 Webhook
 https://api.telegram.org/bot<TOKEN>/setWebhook?url=<WORKER_URL>/webhook
 
 # 查看 Webhook 状态  
@@ -168,7 +177,7 @@ https://api.telegram.org/bot<TOKEN>/getWebhookInfo
 
 # 删除 Webhook
 https://api.telegram.org/bot<TOKEN>/deleteWebhook
-
+```
 ```
 telegram-rss-bot/
 ├── src/
