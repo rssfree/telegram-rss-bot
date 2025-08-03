@@ -1,5 +1,5 @@
 // Cloudflare Workers Telegram RSS Bot
-// 完整版本，支持网页部署
+// 增强版本，修复订阅问题并添加新功能
 
 export default {
   async fetch(request, env, ctx) {
@@ -69,6 +69,7 @@ function getStatusPage() {
         <li>🔄 每10分钟自动检查更新</li>
         <li>👥 支持多用户同时使用</li>
         <li>💾 使用D1数据库存储订阅</li>
+        <li>📦 支持批量订阅和取消订阅</li>
     </ul>
     
     <h2>🛠️ 设置步骤</h2>
@@ -80,10 +81,14 @@ function getStatusPage() {
     
     <h2>📖 使用命令</h2>
     <ul>
-        <li><code>/start</code> - 开始使用</li>
+        <li><code>/start</code> - 开始使用和查看帮助</li>
         <li><code>/subscribe &lt;RSS_URL&gt;</code> - 订阅RSS</li>
+        <li><code>/multi_subscribe</code> - 批量订阅RSS</li>
         <li><code>/unsubscribe &lt;RSS_URL&gt;</code> - 取消订阅</li>
+        <li><code>/multi_unsubscribe</code> - 批量取消订阅</li>
         <li><code>/list</code> - 查看订阅列表</li>
+        <li><code>/clear_all</code> - 清空所有订阅</li>
+        <li><code>/help</code> - 查看帮助信息</li>
     </ul>
     
     <div class="info">
@@ -184,14 +189,27 @@ async function handleMessage(message, env) {
     if (text.startsWith('/start')) {
       const welcomeText = `🤖 欢迎使用RSS订阅机器人！
 
-📋 可用命令：
+📋 基础命令：
 /subscribe <RSS_URL> - 订阅RSS源
 /unsubscribe <RSS_URL> - 取消订阅RSS源  
 /list - 查看我的订阅列表
-/help - 查看帮助信息
 
-💡 示例：
+📦 批量操作：
+/multi_subscribe - 批量订阅多个RSS源
+/multi_unsubscribe - 批量取消订阅
+
+🛠️ 管理命令：
+/clear_all - 清空所有订阅（需确认）
+/help - 查看详细帮助
+
+💡 单个订阅示例：
 /subscribe https://example.com/rss.xml
+
+📝 批量订阅示例：
+/multi_subscribe
+https://example1.com/rss.xml
+https://example2.com/feed.xml
+https://example3.com/atom.xml
 
 开始添加你感兴趣的RSS源吧！`;
       
@@ -201,18 +219,82 @@ async function handleMessage(message, env) {
       const rssUrl = text.replace('/subscribe ', '').trim();
       await subscribeRSS(chatId, userId, rssUrl, env);
     }
+    else if (text === '/multi_subscribe') {
+      const helpText = `📦 批量订阅RSS源
+
+请按以下格式发送多个RSS链接（每行一个）：
+
+/multi_subscribe
+https://example1.com/rss.xml
+https://example2.com/feed.xml
+https://example3.com/atom.xml
+
+💡 提示：
+- 每行一个RSS链接
+- 支持同时订阅多个源
+- 无效链接会自动跳过`;
+      
+      await sendMessage(chatId, helpText, env);
+    }
+    else if (text.startsWith('/multi_subscribe\n')) {
+      const urls = text.split('\n').slice(1).filter(url => url.trim());
+      await multiSubscribeRSS(chatId, userId, urls, env);
+    }
     else if (text.startsWith('/unsubscribe ')) {
       const rssUrl = text.replace('/unsubscribe ', '').trim();
       await unsubscribeRSS(chatId, rssUrl, env);
     }
+    else if (text === '/multi_unsubscribe') {
+      await showUnsubscribeOptions(chatId, env);
+    }
+    else if (text.startsWith('/multi_unsubscribe\n')) {
+      const urls = text.split('\n').slice(1).filter(url => url.trim());
+      await multiUnsubscribeRSS(chatId, urls, env);
+    }
     else if (text === '/list') {
       await listSubscriptions(chatId, env);
     }
+    else if (text === '/clear_all') {
+      await confirmClearAll(chatId, env);
+    }
+    else if (text === '/confirm_clear_all') {
+      await clearAllSubscriptions(chatId, env);
+    }
     else if (text === '/help') {
-      await sendMessage(chatId, '请使用 /start 查看完整帮助信息。', env);
+      const helpText = `🤖 RSS订阅机器人完整指南
+
+📋 基础订阅命令：
+• /subscribe <URL> - 订阅单个RSS源
+• /unsubscribe <URL> - 取消订阅单个RSS源
+• /list - 查看所有订阅
+
+📦 批量操作：
+• /multi_subscribe - 批量订阅（输入命令后会显示使用方法）
+• /multi_unsubscribe - 批量取消订阅（会显示当前订阅列表供选择）
+
+🛠️ 管理命令：
+• /clear_all - 清空所有订阅（需要确认）
+• /help - 显示此帮助信息
+• /start - 显示欢迎信息
+
+💡 使用技巧：
+1. RSS链接必须以http或https开头
+2. 机器人每10分钟自动检查更新
+3. 支持RSS和Atom格式
+4. 批量操作可以节省时间
+
+❓ 遇到问题？
+请确保RSS链接有效且可访问。`;
+      
+      await sendMessage(chatId, helpText, env);
     }
     else {
-      await sendMessage(chatId, '❓ 未知命令。请使用 /start 查看可用命令。', env);
+      await sendMessage(chatId, `❓ 未知命令: ${text}
+
+请使用以下命令：
+• /start - 查看欢迎信息
+• /help - 查看详细帮助
+• /list - 查看订阅列表`, env);
     }
   } catch (error) {
     console.error('消息处理错误:', error);
@@ -220,12 +302,22 @@ async function handleMessage(message, env) {
   }
 }
 
-// 订阅RSS
+// 订阅RSS - 修复重复订阅检测问题
 async function subscribeRSS(chatId, userId, rssUrl, env) {
   try {
     // 验证URL格式
     if (!rssUrl || !rssUrl.startsWith('http')) {
       await sendMessage(chatId, '❌ 请提供有效的RSS URL（需要以http或https开头）', env);
+      return;
+    }
+    
+    // 先检查是否已订阅
+    const existingResult = await env.DB.prepare(`
+      SELECT COUNT(*) as count FROM subscriptions WHERE chat_id = ? AND rss_url = ?
+    `).bind(chatId, rssUrl).first();
+    
+    if (existingResult.count > 0) {
+      await sendMessage(chatId, '❌ 您已经订阅过这个RSS源了', env);
       return;
     }
     
@@ -250,20 +342,217 @@ async function subscribeRSS(chatId, userId, rssUrl, env) {
     const result = await env.DB.prepare(`
       INSERT INTO subscriptions (chat_id, user_id, rss_url, created_at) 
       VALUES (?, ?, ?, datetime('now'))
-      ON CONFLICT(chat_id, rss_url) DO NOTHING
     `).bind(chatId, userId, rssUrl).run();
     
-    if (result.changes > 0) {
+    if (result.success) {
       // 初始化RSS缓存
       await env.RSS_CACHE.put(`last_check_${btoa(rssUrl)}`, Date.now().toString());
       await sendMessage(chatId, `✅ 成功订阅RSS:\n${rssUrl}`, env);
     } else {
-      await sendMessage(chatId, '❌ 您已经订阅过这个RSS源了', env);
+      await sendMessage(chatId, '❌ 订阅失败，请稍后重试', env);
     }
     
   } catch (error) {
     console.error('订阅RSS错误:', error);
     await sendMessage(chatId, '❌ 订阅失败，请检查RSS URL是否正确', env);
+  }
+}
+
+// 批量订阅RSS
+async function multiSubscribeRSS(chatId, userId, urls, env) {
+  if (urls.length === 0) {
+    await sendMessage(chatId, '❌ 请提供要订阅的RSS链接', env);
+    return;
+  }
+  
+  let successCount = 0;
+  let failedUrls = [];
+  let duplicateUrls = [];
+  
+  await sendMessage(chatId, `🔄 开始批量订阅 ${urls.length} 个RSS源，请稍候...`, env);
+  
+  for (const url of urls) {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl || !trimmedUrl.startsWith('http')) {
+      failedUrls.push(`${trimmedUrl} (格式错误)`);
+      continue;
+    }
+    
+    try {
+      // 检查是否已订阅
+      const existingResult = await env.DB.prepare(`
+        SELECT COUNT(*) as count FROM subscriptions WHERE chat_id = ? AND rss_url = ?
+      `).bind(chatId, trimmedUrl).first();
+      
+      if (existingResult.count > 0) {
+        duplicateUrls.push(trimmedUrl);
+        continue;
+      }
+      
+      // 验证RSS源
+      const response = await fetch(trimmedUrl, {
+        headers: { 'User-Agent': 'TelegramRSSBot/1.0' },
+        timeout: 10000
+      });
+      
+      if (!response.ok) {
+        failedUrls.push(`${trimmedUrl} (状态码: ${response.status})`);
+        continue;
+      }
+      
+      const rssContent = await response.text();
+      if (!rssContent.includes('<rss') && !rssContent.includes('<feed') && !rssContent.includes('<channel>')) {
+        failedUrls.push(`${trimmedUrl} (非RSS格式)`);
+        continue;
+      }
+      
+      // 保存订阅
+      const result = await env.DB.prepare(`
+        INSERT INTO subscriptions (chat_id, user_id, rss_url, created_at) 
+        VALUES (?, ?, ?, datetime('now'))
+      `).bind(chatId, userId, trimmedUrl).run();
+      
+      if (result.success) {
+        await env.RSS_CACHE.put(`last_check_${btoa(trimmedUrl)}`, Date.now().toString());
+        successCount++;
+      } else {
+        failedUrls.push(`${trimmedUrl} (数据库错误)`);
+      }
+      
+      // 避免请求过快
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+    } catch (error) {
+      failedUrls.push(`${trimmedUrl} (${error.message})`);
+    }
+  }
+  
+  let resultMessage = `📊 批量订阅完成！\n\n✅ 成功订阅: ${successCount} 个`;
+  
+  if (duplicateUrls.length > 0) {
+    resultMessage += `\n🔄 已订阅: ${duplicateUrls.length} 个`;
+  }
+  
+  if (failedUrls.length > 0) {
+    resultMessage += `\n❌ 失败: ${failedUrls.length} 个`;
+    if (failedUrls.length <= 5) {
+      resultMessage += '\n\n失败详情:\n' + failedUrls.map(url => `• ${url}`).join('\n');
+    }
+  }
+  
+  await sendMessage(chatId, resultMessage, env);
+}
+
+// 显示取消订阅选项
+async function showUnsubscribeOptions(chatId, env) {
+  try {
+    const result = await env.DB.prepare(`
+      SELECT rss_url FROM subscriptions 
+      WHERE chat_id = ? 
+      ORDER BY created_at DESC
+    `).bind(chatId).all();
+    
+    if (result.results.length === 0) {
+      await sendMessage(chatId, '📋 您还没有订阅任何RSS源', env);
+      return;
+    }
+    
+    let message = `📦 批量取消订阅
+
+请按以下格式发送要取消的RSS链接（每行一个）：
+
+/multi_unsubscribe
+${result.results.slice(0, 10).map(sub => sub.rss_url).join('\n')}
+
+💡 提示：
+- 复制上面的链接，删除不需要取消的
+- 每行一个RSS链接
+- 或使用 /clear_all 清空所有订阅`;
+    
+    await sendMessage(chatId, message, env);
+  } catch (error) {
+    console.error('显示取消订阅选项错误:', error);
+    await sendMessage(chatId, '❌ 获取订阅列表失败', env);
+  }
+}
+
+// 批量取消订阅
+async function multiUnsubscribeRSS(chatId, urls, env) {
+  if (urls.length === 0) {
+    await sendMessage(chatId, '❌ 请提供要取消订阅的RSS链接', env);
+    return;
+  }
+  
+  let successCount = 0;
+  let notFoundUrls = [];
+  
+  for (const url of urls) {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) continue;
+    
+    try {
+      const result = await env.DB.prepare(`
+        DELETE FROM subscriptions WHERE chat_id = ? AND rss_url = ?
+      `).bind(chatId, trimmedUrl).run();
+      
+      if (result.changes > 0) {
+        successCount++;
+      } else {
+        notFoundUrls.push(trimmedUrl);
+      }
+    } catch (error) {
+      notFoundUrls.push(trimmedUrl);
+    }
+  }
+  
+  let resultMessage = `📊 批量取消订阅完成！\n\n✅ 成功取消: ${successCount} 个`;
+  
+  if (notFoundUrls.length > 0) {
+    resultMessage += `\n❌ 未找到: ${notFoundUrls.length} 个`;
+  }
+  
+  await sendMessage(chatId, resultMessage, env);
+}
+
+// 确认清空所有订阅
+async function confirmClearAll(chatId, env) {
+  try {
+    const result = await env.DB.prepare(`
+      SELECT COUNT(*) as count FROM subscriptions WHERE chat_id = ?
+    `).bind(chatId).first();
+    
+    if (result.count === 0) {
+      await sendMessage(chatId, '📋 您当前没有任何订阅', env);
+      return;
+    }
+    
+    const confirmMessage = `⚠️ 确认清空所有订阅
+
+您当前有 ${result.count} 个RSS订阅。
+
+此操作将删除所有订阅，无法撤销！
+
+如需确认，请发送: /confirm_clear_all
+如需取消，请发送其他任意消息。`;
+    
+    await sendMessage(chatId, confirmMessage, env);
+  } catch (error) {
+    console.error('确认清空错误:', error);
+    await sendMessage(chatId, '❌ 操作失败，请稍后重试', env);
+  }
+}
+
+// 清空所有订阅
+async function clearAllSubscriptions(chatId, env) {
+  try {
+    const result = await env.DB.prepare(`
+      DELETE FROM subscriptions WHERE chat_id = ?
+    `).bind(chatId).run();
+    
+    await sendMessage(chatId, `✅ 已清空所有订阅 (共删除 ${result.changes} 个)`, env);
+  } catch (error) {
+    console.error('清空订阅错误:', error);
+    await sendMessage(chatId, '❌ 清空失败，请稍后重试', env);
   }
 }
 
@@ -295,17 +584,25 @@ async function listSubscriptions(chatId, env) {
     `).bind(chatId).all();
     
     if (result.results.length === 0) {
-      await sendMessage(chatId, '📋 您还没有订阅任何RSS源\n\n使用 /subscribe <URL> 来添加订阅', env);
+      await sendMessage(chatId, `📋 您还没有订阅任何RSS源
+
+💡 使用方法：
+• /subscribe <URL> - 订阅单个RSS源
+• /multi_subscribe - 批量订阅多个RSS源`, env);
       return;
     }
     
     let message = `📋 您的RSS订阅列表 (${result.results.length}个):\n\n`;
     result.results.forEach((sub, index) => {
       const date = new Date(sub.created_at + 'Z').toLocaleDateString('zh-CN');
-      message += `${index + 1}. ${sub.rss_url}\n📅 订阅时间: ${date}\n\n`;
+      message += `${index + 1}. ${sub.rss_url}\n📅 ${date}\n\n`;
     });
     
-    message += '💡 使用 /unsubscribe <URL> 来取消订阅';
+    message += `🛠️ 管理订阅：
+• /unsubscribe <URL> - 取消单个订阅
+• /multi_unsubscribe - 批量取消订阅
+• /clear_all - 清空所有订阅`;
+    
     await sendMessage(chatId, message, env);
     
   } catch (error) {
@@ -450,13 +747,16 @@ function cleanText(text) {
   if (!text) return '';
   return text
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/<[^>]*>/g, '')
+    .replace(/<[^>]*>/g, '') // 移除所有HTML/XML标签
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, ' ')
+    .replace(/&apos;/g, "'")
+    .replace(/&#x[\da-fA-F]+;/g, '') // 移除十六进制实体
+    .replace(/&#\d+;/g, '') // 移除数字实体
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -484,20 +784,20 @@ async function notifySubscribers(rssUrl, newItems, env) {
 
 // 格式化文章消息
 function formatArticleMessage(item) {
+  // 使用纯文本格式，避免HTML解析问题
   let message = `📰 新文章推送\n\n`;
-  message += `📝 ${item.title}\n\n`;
+  message += `📝 ${cleanMessageText(item.title)}\n\n`;
   
   if (item.description && item.description.length > 0) {
-    const desc = item.description.length > 150 
-      ? item.description.substring(0, 150) + '...' 
-      : item.description;
-    message += `📄 ${desc}\n\n`;
+    const desc = cleanMessageText(item.description);
+    const shortDesc = desc.length > 150 ? desc.substring(0, 150) + '...' : desc;
+    message += `📄 ${shortDesc}\n\n`;
   }
   
   message += `🔗 ${item.link}`;
   
   if (item.pubDate) {
-    message += `\n⏰ ${item.pubDate}`;
+    message += `\n⏰ ${cleanMessageText(item.pubDate)}`;
   }
   
   return message;
@@ -506,22 +806,61 @@ function formatArticleMessage(item) {
 // 发送Telegram消息
 async function sendMessage(chatId, text, env) {
   try {
+    // 清理消息文本，移除或转义HTML标签
+    const cleanText = cleanMessageText(text);
+    
     const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: text,
-        parse_mode: 'HTML',
+        text: cleanText,
         disable_web_page_preview: true
+        // 移除 parse_mode: 'HTML' 来避免解析错误
       }),
     });
     
     if (!response.ok) {
       const errorText = await response.text();
       console.error('发送消息失败:', errorText);
+      
+      // 如果仍然失败，尝试发送纯文本版本
+      const fallbackResponse = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: "抱歉，消息发送失败。请稍后重试。",
+          disable_web_page_preview: true
+        }),
+      });
+      
+      if (!fallbackResponse.ok) {
+        console.error('备用消息也发送失败');
+      }
     }
   } catch (error) {
     console.error('发送消息错误:', error);
   }
+}
+
+// 清理消息文本
+function cleanMessageText(text) {
+  if (!text) return '';
+  
+  return text
+    // 移除所有HTML标签
+    .replace(/<[^>]*>/g, '')
+    // 转义特殊字符
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    // 移除多余的空白字符
+    .replace(/\s+/g, ' ')
+    .trim()
+    // 限制消息长度（Telegram限制4096字符）
+    .substring(0, 4000);
 }
