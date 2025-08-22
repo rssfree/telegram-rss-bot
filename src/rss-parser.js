@@ -168,12 +168,27 @@ export class RSSParser {
       await new Promise(resolve => setTimeout(resolve, Math.random() * 2000 + 1000));
     }
 
-    return fetch(url, {
-      method: 'GET',
-      headers: strategy.headers,
-      redirect: 'follow',
-      timeout: 15000 // 15秒超时
-    });
+    // 使用AbortController实现超时控制
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: strategy.headers,
+        redirect: 'follow',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('请求超时');
+      }
+      throw error;
+    }
   }
 
   parseXML(xmlText) {
