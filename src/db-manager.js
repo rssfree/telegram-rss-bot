@@ -6,6 +6,32 @@ export class DBManager {
   async ensureSchema() {
     // Create new tables if they do not exist (idempotent)
     const stmts = [
+      `CREATE TABLE IF NOT EXISTS subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        rss_url TEXT NOT NULL,
+        site_name TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, rss_url)
+      )`,
+      `CREATE TABLE IF NOT EXISTS rss_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rss_url TEXT NOT NULL,
+        item_guid TEXT NOT NULL,
+        title TEXT NOT NULL,
+        link TEXT,
+        published_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(rss_url, item_guid)
+      )`,
+      `CREATE TABLE IF NOT EXISTS rss_failures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rss_url TEXT NOT NULL UNIQUE,
+        error_message TEXT,
+        failure_count INTEGER DEFAULT 1,
+        last_failure DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
       `CREATE TABLE IF NOT EXISTS push_targets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         owner_user_id TEXT NOT NULL,
@@ -165,16 +191,20 @@ export class DBManager {
   // 添加失败记录跟踪
   async recordFailure(rssUrl, errorMessage) {
     try {
-      await this.db.prepare(`
-        INSERT OR REPLACE INTO rss_failures 
-        (rss_url, error_message, failure_count, last_failure, created_at) 
-        VALUES (
-          ?, ?, 
-          COALESCE((SELECT failure_count FROM rss_failures WHERE rss_url = ?), 0) + 1,
-          CURRENT_TIMESTAMP,
-          COALESCE((SELECT created_at FROM rss_failures WHERE rss_url = ?), CURRENT_TIMESTAMP)
-        )
-      `).bind(rssUrl, errorMessage, rssUrl, rssUrl).run();
+      const existing = await this.db.prepare(
+        'SELECT failure_count FROM rss_failures WHERE rss_url = ?'
+      ).bind(rssUrl).first();
+      
+      if (existing) {
+        await this.db.prepare(
+          'UPDATE rss_failures SET error_message = ?, failure_count = failure_count + 1, last_failure = CURRENT_TIMESTAMP WHERE rss_url = ?'
+        ).bind(errorMessage, rssUrl).run();
+      } else {
+        await this.db.prepare(`
+          INSERT INTO rss_failures (rss_url, error_message, failure_count, last_failure, created_at) 
+          VALUES (?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).bind(rssUrl, errorMessage).run();
+      }
     } catch (error) {
       console.error('记录失败信息失败:', error);
     }
@@ -342,4 +372,6 @@ export class DBManager {
       return [];
     }
   }
+
+
 }
