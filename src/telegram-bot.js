@@ -217,9 +217,11 @@ export class TelegramBot {
 
   // 测试RSS源可访问性
   async testRSSSource(url) {
-    const rssParser = new (await import('./rss-parser.js')).RSSParser();
-    
     try {
+      // 动态导入避免循环依赖
+      const { RSSParser } = await import('./rss-parser.js');
+      const rssParser = new RSSParser();
+      
       // 尝试获取第一条内容以验证
       const items = await rssParser.parseRSS(url);
       
@@ -262,9 +264,11 @@ export class TelegramBot {
 
     await this.sendMessage(userId, '🔍 正在测试RSS源访问情况，请稍候...');
 
-    const rssParser = new (await import('./rss-parser.js')).RSSParser();
-    
     try {
+      // 动态导入避免循环依赖
+      const { RSSParser } = await import('./rss-parser.js');
+      const rssParser = new RSSParser();
+      
       // 测试直接访问
       let directResult = '❌ 直接访问失败';
       let contentPreview = '';
@@ -458,22 +462,23 @@ export class TelegramBot {
   }
 
   async sendRSSItem(userId, item, siteName) {
-    const title = this.escapeMarkdown(item.title);
+    const title = this.escapeHTML(item.title);
     const link = item.link || '';
-    const description = this.escapeMarkdown(item.description || '');
+    const description = this.escapeHTML(item.description || '');
     const publishedAt = item.publishedAt || '未知时间';
     
-    // 格式化消息：第一行标题+链接，第二行来源+时间
-    let message = `🔗 [${title}](${link})\n`;
+    // 使用HTML格式替代Markdown，避免转义问题
+    let message = `🔗 <a href="${link}">${title}</a>\n`;
     if (description) {
       message += `📝 ${description.substring(0, 200)}${description.length > 200 ? '...' : ''}\n`;
     }
-    message += `📰 来源：${siteName} | ⏰ ${publishedAt}`;
+    // 修正格式，避免被误识别为链接：使用空格和特殊字符分隔
+    message += `📰 来源 · ${this.escapeHTML(siteName)} | ⏰ ${this.escapeHTML(publishedAt)}`;
 
-    await this.sendMessage(userId, message, true);
+    await this.sendMessage(userId, message, 'HTML');
   }
 
-   // 智能推送RSS内容，支持多种推送模式
+  // 智能推送RSS内容，支持多种推送模式
   async sendRSSUpdate(ownerUserId, rssUrl, item, siteName) {
     // 获取用户推送模式
     const pushMode = await this.dbManager.getUserPushMode(ownerUserId) || 'smart';
@@ -580,28 +585,83 @@ export class TelegramBot {
   }
 
   async sendMessage(userId, text, parseMode = false) {
-    const payload = {
-      chat_id: userId,
-      text: text,
-      disable_web_page_preview: false
-    };
+    const maxRetries = 3;
+    let lastError;
     
-    if (parseMode) {
-      payload.parse_mode = 'Markdown';
-    }
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const payload = {
+          chat_id: userId,
+          text: text,
+          disable_web_page_preview: false
+        };
+        
+        if (parseMode) {
+          if (parseMode === 'HTML') {
+            payload.parse_mode = 'HTML';
+          } else {
+            payload.parse_mode = 'Markdown';
+          }
+        }
 
-    const response = await fetch(`${this.apiUrl}/sendMessage`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload)
-    });
+        const response = await fetch(`${this.apiUrl}/sendMessage`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload)
+        });
 
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('发送消息失败:', error);
+        if (response.ok) {
+          return; // 成功发送，退出重试
+        }
+        
+        const errorData = await response.json().catch(() => ({}));
+        
+        // 处理Telegram API错误
+        if (response.status === 429) {
+          // 速率限制，等待后重试
+          const retryAfter = errorData.parameters?.retry_after || 1;
+          console.warn(`Telegram API速率限制，等待${retryAfter}秒后重试`);
+          await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+          continue;
+        } else if (response.status === 400 && errorData.description?.includes('message is too long')) {
+          // 消息过长，截断处理
+          const truncatedText = text.substring(0, 4000) + '...';
+          payload.text = truncatedText;
+          console.warn(`消息过长，已截断到4000字符`);
+          // 重新发送截断后的消息
+          const retryResponse = await fetch(`${this.apiUrl}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (retryResponse.ok) return;
+          continue;
+        } else if (response.status >= 500) {
+          // 服务器错误，等待后重试
+          const delay = Math.pow(2, attempt) * 1000;
+          console.warn(`Telegram服务器错误，${delay}ms后重试 (${attempt}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        } else {
+          // 其他错误，记录并退出
+          console.error('发送消息失败:', response.status, errorData.description || 'Unknown error');
+          break;
+        }
+      } catch (error) {
+        lastError = error;
+        console.warn(`发送消息尝试 ${attempt}/${maxRetries} 失败:`, error.message);
+        
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
+    
+    // 所有重试都失败了
+    console.error('发送消息最终失败:', lastError?.message || 'Unknown error');
   }
 
   isValidUrl(string) {
@@ -625,229 +685,280 @@ export class TelegramBot {
   escapeMarkdown(text) {
     if (!text) return '';
     
-    // 使用更智能的转义策略，减少不必要的转义
-    // 只转义真正需要转义的字符，避免过度转义
+    // 根据Telegram Markdown V1规范，只转义必要的字符
+    // 参考：https://core.telegram.org/bots/api#markdown-style
     return text
-      // 转义Markdown语法字符，但保留常见的标点符号
-      .replace(/([_*[\]()~`>#+=|{}])/g, '\\$1')
-      // 不转义句号、感叹号、连字符等常见标点，除非它们在特殊位置
-      .replace(/^\./g, '\\.') // 只在开头转义句号
-      .replace(/^!/g, '\\!')  // 只在开头转义感叹号
-      .replace(/^-/g, '\\-')  // 只在开头转义连字符
-      // 处理可能的Markdown链接格式，避免误转义
-      .replace(/([^\\])\[/g, '$1\\[')
-      .replace(/([^\\])\]/g, '$1\\]')
-      .replace(/([^\\])\(/g, '$1\\(')
-      .replace(/([^\\])\)/g, '$1\\)');
-  }
-}
-
-// ===== Targets & Binding Commands =====
-TelegramBot.prototype.handleChannelsCommand = async function (userId) {
-  const targets = await this.dbManager.listPushTargets(userId);
-  if (targets.length === 0) {
-    await this.sendMessage(userId, '尚未注册任何推送目标。\n将Bot添加到群组/频道后会自动注册。');
-    return;
+      // 只转义会影响Markdown解析的关键字符
+      .replace(/\\/g, '\\\\')  // 反斜线必须先转义
+      .replace(/\*/g, '\\*')    // 星号（粗体）
+      .replace(/_/g, '\\_')     // 下划线（斜体）
+      .replace(/`/g, '\\`');    // 反引号（代码）
+      // 不转义方括号和圆括号，让它们正常显示
+      // 不转义+号等其他字符，保持原样
   }
 
-  let msg = `📢 推送目标列表 (${targets.length}个)：\n\n`;
-  targets.forEach((t, idx) => {
-    const typeLabel = t.chat_type === 'channel' ? '频道' : (t.chat_type === 'supergroup' ? '超级群组' : '群组');
-    const name = t.title || (t.username ? `@${t.username}` : t.chat_id);
-    const statusEmoji = t.status === 'active' ? '🟢' : '🔴';
-    msg += `${idx + 1}. ${statusEmoji} ${name}\n📋 类型：${typeLabel}\n🆔 ID：${t.chat_id}\n\n`;
-  });
-  msg += '💡 可使用 /bind <订阅号> <目标号,目标号> 进行绑定';
-  await this.sendMessage(userId, msg);
-};
-
-TelegramBot.prototype.handleTargetsCommand = async function (userId, args) {
-  const targets = await this.dbManager.listPushTargets(userId);
-  if (targets.length === 0) {
-    await this.sendMessage(userId, '没有可管理的推送目标');
-    return;
+  escapeHTML(text) {
+    if (!text) return '';
+    
+    // HTML实体转义，保持文本原样显示
+    return text
+      .replace(/&/g, '&amp;')   // 必须先转义&
+      .replace(/</g, '&lt;')    // 小于号
+      .replace(/>/g, '&gt;');   // 大于号
+      // 不需要转义引号，因为我们不使用属性
   }
 
-  if (args.length === 0) {
-    let msg = '🎯 推送目标管理：\n\n';
-    targets.forEach((t, idx) => {
-      const name = t.title || (t.username ? `@${t.username}` : t.chat_id);
-      const statusEmoji = t.status === 'active' ? '🟢 active' : '🔴 inactive';
-      msg += `${idx + 1}. ${name} (${statusEmoji})\n`;
-    });
-    msg += '\n指令：\n/targets activate <编号>\n/targets deactivate <编号>\n/targets delete <编号>';
-    await this.sendMessage(userId, msg);
-    return;
-  }
-
-  const action = args[0];
-  const indexStr = args[1];
-  const idx = parseInt(indexStr, 10) - 1;
-  if (isNaN(idx) || idx < 0 || idx >= targets.length) {
-    await this.sendMessage(userId, '无效编号');
-    return;
-  }
-  const target = targets[idx];
-  if (action === 'activate' || action === 'deactivate') {
-    const status = action === 'activate' ? 'active' : 'inactive';
-    const ok = await this.dbManager.setPushTargetStatus(userId, target.chat_id, status);
-    await this.sendMessage(userId, ok ? '已更新状态' : '更新失败');
-  } else if (action === 'delete') {
-    const ok = await this.dbManager.deletePushTarget(userId, target.chat_id);
-    // 兼容已实际删除但返回变更计数不可靠的情况，复查列表
-    const refreshed = await this.dbManager.listPushTargets(userId);
-    const stillExists = refreshed.some(t => t.chat_id === target.chat_id);
-    const success = ok || !stillExists;
-    await this.sendMessage(userId, success ? '已删除目标及相关绑定' : '删除失败');
-  } else {
-    await this.sendMessage(userId, '未知操作，仅支持 activate/deactivate/delete');
-  }
-};
-
-TelegramBot.prototype.handleBindCommand = async function (userId, args) {
-  if (args.length < 2) {
-    await this.sendMessage(userId, '用法：/bind <订阅号或范围> <目标号,目标号>\n示例：/bind 1,2,3 2  或  /bind 1-3 2');
-    return;
-  }
-
-  const subs = await this.dbManager.getUserSubscriptions(userId);
-  const targets = await this.dbManager.listPushTargets(userId);
-  if (subs.length === 0 || targets.length === 0) {
-    await this.sendMessage(userId, '请先添加订阅并将Bot加入群组/频道');
-    return;
-  }
-
-  // Parse subscriptions: support single index, comma list, or range like 1-3
-  const subToken = args[0];
-  const subIndices = new Set();
-  subToken.split(/[，,]+/).forEach(part => {
-    if (!part) return;
-    if (/^\d+-\d+$/.test(part)) {
-      const [a, b] = part.split('-').map(n => parseInt(n, 10));
-      if (!isNaN(a) && !isNaN(b)) {
-        const start = Math.min(a, b);
-        const end = Math.max(a, b);
-        for (let i = start; i <= end; i++) subIndices.add(i - 1);
-      }
-    } else {
-      const idx = parseInt(part, 10) - 1;
-      if (!isNaN(idx)) subIndices.add(idx);
-    }
-  });
-
-  const validSubIndices = Array.from(subIndices).filter(i => i >= 0 && i < subs.length);
-  if (validSubIndices.length === 0) {
-    await this.sendMessage(userId, '没有有效的订阅编号');
-    return;
-  }
-
-  // Parse target indices (one or many)
-  const targetArg = args.slice(1).join(' ');
-  const tokens = targetArg.split(/[，,\s]+/).filter(Boolean);
-  const chatIds = [];
-  const targetNames = [];
-  for (const tok of tokens) {
-    const idx = parseInt(tok, 10) - 1;
-    if (!isNaN(idx) && idx >= 0 && idx < targets.length) {
-      chatIds.push(targets[idx].chat_id);
-      targetNames.push(targets[idx].title || targets[idx].username || targets[idx].chat_id);
-    }
-  }
-  if (chatIds.length === 0) {
-    await this.sendMessage(userId, '没有有效的目标编号');
-    return;
-  }
-
-  let totalAdded = 0;
-  const subNames = [];
-  for (const i of validSubIndices) {
-    const sub = subs[i];
-    subNames.push(sub.site_name);
-    totalAdded += await this.dbManager.bindSubscriptionTargets(userId, sub.rss_url, chatIds);
-  }
-
-  const summary = `已绑定：订阅(${subNames.join(', ')}) -> 目标(${targetNames.join(', ')})\n新增绑定：${totalAdded} 个`;
-  await this.sendMessage(userId, summary);
-};
-
-TelegramBot.prototype.handleUnbindCommand = async function (userId, args) {
-  if (args.length < 1) {
-    await this.sendMessage(userId, '用法：/unbind <订阅号>');
-    return;
-  }
-  const subs = await this.dbManager.getUserSubscriptions(userId);
-  const subIndex = parseInt(args[0], 10) - 1;
-  if (isNaN(subIndex) || subIndex < 0 || subIndex >= subs.length) {
-    await this.sendMessage(userId, '无效订阅编号');
-    return;
-  }
-  const rssUrl = subs[subIndex].rss_url;
-  const removed = await this.dbManager.unbindSubscription(userId, rssUrl);
-  await this.sendMessage(userId, removed > 0 ? '已解除该订阅的所有绑定' : '该订阅没有任何绑定');
-};
-
-// 添加状态查看命令
-TelegramBot.prototype.handleStatusCommand = async function (userId) {
-  try {
-    const userSubscriptions = await this.dbManager.getUserSubscriptions(userId);
-    if (userSubscriptions.length === 0) {
-      await this.sendMessage(userId, '您还没有任何订阅，使用 /add 添加RSS源');
+  // ===== Targets & Binding Commands =====
+  async handleChannelsCommand(userId) {
+    const targets = await this.dbManager.listPushTargets(userId);
+    if (targets.length === 0) {
+      await this.sendMessage(userId, '尚未注册任何推送目标。\n将Bot添加到群组/频道后会自动注册。');
       return;
     }
 
-    // 动态导入RSSParser以获取访问统计
-    const { RSSParser } = await import('./rss-parser.js');
-    const rssParser = new RSSParser();
-    
-    let message = `📊 RSS源状态报告 (${userSubscriptions.length}个)：\n\n`;
-    
-    for (let i = 0; i < userSubscriptions.length; i++) {
-      const sub = userSubscriptions[i];
-      const stats = rssParser.getAccessStats(sub.rss_url);
-      
-      let status = '🟢 正常';
-      let details = '';
-      
-      if (stats.rateLimitCount > 0) {
-        status = '🔴 频率限制';
-        const lastAccess = new Date(stats.lastAccess);
-        const now = new Date();
-        const timeDiff = Math.floor((now - lastAccess) / 1000 / 60); // 分钟
-        details = `限流${stats.rateLimitCount}次，${timeDiff}分钟前访问`;
-      } else if (stats.failureCount > 0) {
-        status = '🟡 部分失败';
-        details = `失败${stats.failureCount}次，成功${stats.successCount}次`;
-      } else if (stats.successCount > 0) {
-        details = `成功${stats.successCount}次`;
-      }
-      
-      message += `${i + 1}. ${sub.site_name}\n`;
-      message += `   ${status}\n`;
-      if (details) {
-        message += `   📝 ${details}\n`;
-      }
-      message += `   🔗 ${sub.rss_url}\n\n`;
-    }
-    
-    message += '💡 使用 /status 查看最新状态\n';
-    message += '💡 频率限制的源会自动跳过，无需手动处理';
-    
-    await this.sendMessage(userId, message);
-  } catch (error) {
-    console.error('获取状态信息失败:', error);
-    await this.sendMessage(userId, '获取状态信息失败，请稍后再试');
+    let msg = `📢 推送目标列表 (${targets.length}个)：\n\n`;
+    targets.forEach((t, idx) => {
+      const typeLabel = t.chat_type === 'channel' ? '频道' : (t.chat_type === 'supergroup' ? '超级群组' : '群组');
+      const name = t.title || (t.username ? `@${t.username}` : t.chat_id);
+      const statusEmoji = t.status === 'active' ? '🟢' : '🔴';
+      msg += `${idx + 1}. ${statusEmoji} ${name}\n📋 类型：${typeLabel}\n🆔 ID：${t.chat_id}\n\n`;
+    });
+    msg += '💡 可使用 /bind <订阅号> <目标号,目标号> 进行绑定';
+    await this.sendMessage(userId, msg);
   }
-};
 
-// 添加推送模式设置命令
-TelegramBot.prototype.handlePushModeCommand = async function (userId, args) {
-  try {
+  async handleTargetsCommand(userId, args) {
+    const targets = await this.dbManager.listPushTargets(userId);
+    if (targets.length === 0) {
+      await this.sendMessage(userId, '没有可管理的推送目标');
+      return;
+    }
+
     if (args.length === 0) {
-      // 显示当前推送模式
-      const currentMode = await this.dbManager.getUserPushMode(userId) || 'smart';
-      let modeDescription = '';
+      let msg = '🎯 推送目标管理：\n\n';
+      targets.forEach((t, idx) => {
+        const name = t.title || (t.username ? `@${t.username}` : t.chat_id);
+        const statusEmoji = t.status === 'active' ? '🟢 active' : '🔴 inactive';
+        msg += `${idx + 1}. ${name} (${statusEmoji})\n`;
+      });
+      msg += '\n指令：\n/targets activate <编号>\n/targets deactivate <编号>\n/targets delete <编号>';
+      await this.sendMessage(userId, msg);
+      return;
+    }
+
+    const action = args[0];
+    const indexStr = args[1];
+    const idx = parseInt(indexStr, 10) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= targets.length) {
+      await this.sendMessage(userId, '无效编号');
+      return;
+    }
+    const target = targets[idx];
+    if (action === 'activate' || action === 'deactivate') {
+      const status = action === 'activate' ? 'active' : 'inactive';
+      const ok = await this.dbManager.setPushTargetStatus(userId, target.chat_id, status);
+      await this.sendMessage(userId, ok ? '已更新状态' : '更新失败');
+    } else if (action === 'delete') {
+      const ok = await this.dbManager.deletePushTarget(userId, target.chat_id);
+      // 兼容已实际删除但返回变更计数不可靠的情况，复查列表
+      const refreshed = await this.dbManager.listPushTargets(userId);
+      const stillExists = refreshed.some(t => t.chat_id === target.chat_id);
+      const success = ok || !stillExists;
+      await this.sendMessage(userId, success ? '已删除目标及相关绑定' : '删除失败');
+    } else {
+      await this.sendMessage(userId, '未知操作，仅支持 activate/deactivate/delete');
+    }
+  }
+
+  async handleBindCommand(userId, args) {
+    if (args.length < 2) {
+      await this.sendMessage(userId, '用法：/bind <订阅号或范围> <目标号,目标号>\n示例：/bind 1,2,3 2  或  /bind 1-3 2');
+      return;
+    }
+
+    const subs = await this.dbManager.getUserSubscriptions(userId);
+    const targets = await this.dbManager.listPushTargets(userId);
+    if (subs.length === 0 || targets.length === 0) {
+      await this.sendMessage(userId, '请先添加订阅并将Bot加入群组/频道');
+      return;
+    }
+
+    // Parse subscriptions: support single index, comma list, or range like 1-3
+    const subToken = args[0];
+    const subIndices = new Set();
+    subToken.split(/[，,]+/).forEach(part => {
+      if (!part) return;
+      if (/^\d+-\d+$/.test(part)) {
+        const [a, b] = part.split('-').map(n => parseInt(n, 10));
+        if (!isNaN(a) && !isNaN(b)) {
+          const start = Math.min(a, b);
+          const end = Math.max(a, b);
+          for (let i = start; i <= end; i++) subIndices.add(i - 1);
+        }
+      } else {
+        const idx = parseInt(part, 10) - 1;
+        if (!isNaN(idx)) subIndices.add(idx);
+      }
+    });
+
+    const validSubIndices = Array.from(subIndices).filter(i => i >= 0 && i < subs.length);
+    if (validSubIndices.length === 0) {
+      await this.sendMessage(userId, '没有有效的订阅编号');
+      return;
+    }
+
+    // Parse target indices (one or many)
+    const targetArg = args.slice(1).join(' ');
+    const tokens = targetArg.split(/[，,\s]+/).filter(Boolean);
+    const chatIds = [];
+    const targetNames = [];
+    for (const tok of tokens) {
+      const idx = parseInt(tok, 10) - 1;
+      if (!isNaN(idx) && idx >= 0 && idx < targets.length) {
+        chatIds.push(targets[idx].chat_id);
+        targetNames.push(targets[idx].title || targets[idx].username || targets[idx].chat_id);
+      }
+    }
+    if (chatIds.length === 0) {
+      await this.sendMessage(userId, '没有有效的目标编号');
+      return;
+    }
+
+    let totalAdded = 0;
+    const subNames = [];
+    for (const i of validSubIndices) {
+      const sub = subs[i];
+      subNames.push(sub.site_name);
+      totalAdded += await this.dbManager.bindSubscriptionTargets(userId, sub.rss_url, chatIds);
+    }
+
+    const summary = `已绑定：订阅(${subNames.join(', ')}) -> 目标(${targetNames.join(', ')})\n新增绑定：${totalAdded} 个`;
+    await this.sendMessage(userId, summary);
+  }
+
+  async handleUnbindCommand(userId, args) {
+    if (args.length < 1) {
+      await this.sendMessage(userId, '用法：/unbind <订阅号>');
+      return;
+    }
+    const subs = await this.dbManager.getUserSubscriptions(userId);
+    const subIndex = parseInt(args[0], 10) - 1;
+    if (isNaN(subIndex) || subIndex < 0 || subIndex >= subs.length) {
+      await this.sendMessage(userId, '无效订阅编号');
+      return;
+    }
+    const rssUrl = subs[subIndex].rss_url;
+    const removed = await this.dbManager.unbindSubscription(userId, rssUrl);
+    await this.sendMessage(userId, removed > 0 ? '已解除该订阅的所有绑定' : '该订阅没有任何绑定');
+  }
+
+  async handleStatusCommand(userId) {
+    try {
+      const userSubscriptions = await this.dbManager.getUserSubscriptions(userId);
+      if (userSubscriptions.length === 0) {
+        await this.sendMessage(userId, '您还没有任何订阅，使用 /add 添加RSS源');
+        return;
+      }
+
+      // 动态导入RSSParser以获取访问统计
+      const { RSSParser } = await import('./rss-parser.js');
+      const rssParser = new RSSParser();
+    
+      let message = `📊 RSS源状态报告 (${userSubscriptions.length}个)：\n\n`;
       
-      switch (currentMode) {
+      for (let i = 0; i < userSubscriptions.length; i++) {
+        const sub = userSubscriptions[i];
+        const stats = rssParser.getAccessStats(sub.rss_url);
+      
+        let status = '🟢 正常';
+        let details = '';
+      
+        if (stats.rateLimitCount > 0) {
+          status = '🔴 频率限制';
+          const lastAccess = new Date(stats.lastAccess);
+          const now = new Date();
+          const timeDiff = Math.floor((now - lastAccess) / 1000 / 60); // 分钟
+          details = `限流${stats.rateLimitCount}次，${timeDiff}分钟前访问`;
+        } else if (stats.failureCount > 0) {
+          status = '🟡 部分失败';
+          details = `失败${stats.failureCount}次，成功${stats.successCount}次`;
+        } else if (stats.successCount > 0) {
+          details = `成功${stats.successCount}次`;
+        }
+      
+        message += `${i + 1}. ${sub.site_name}\n`;
+        message += `   ${status}\n`;
+        if (details) {
+          message += `   📝 ${details}\n`;
+        }
+        message += `   🔗 ${sub.rss_url}\n\n`;
+      }
+      
+      message += '💡 使用 /status 查看最新状态\n';
+      message += '💡 频率限制的源会自动跳过，无需手动处理';
+      
+      await this.sendMessage(userId, message);
+    } catch (error) {
+      console.error('获取状态信息失败:', error);
+      await this.sendMessage(userId, '获取状态信息失败，请稍后再试');
+    }
+  }
+
+  async handlePushModeCommand(userId, args) {
+    try {
+      if (args.length === 0) {
+        // 显示当前推送模式
+        const currentMode = await this.dbManager.getUserPushMode(userId) || 'smart';
+        let modeDescription = '';
+      
+        switch (currentMode) {
+          case 'smart':
+            modeDescription = '智能模式：有绑定目标时只推送到目标，无绑定时推送到私聊';
+            break;
+          case 'both':
+            modeDescription = '双重推送：同时推送到私聊和绑定的目标';
+            break;
+          case 'private':
+            modeDescription = '仅私聊：只推送到私聊，不推送到绑定的目标';
+            break;
+          case 'targets':
+            modeDescription = '仅目标：只推送到绑定的目标，不推送到私聊';
+            break;
+          default:
+            modeDescription = '智能模式：有绑定目标时只推送到目标，无绑定时推送到私聊';
+        }
+      
+        const message = 
+          `📱 当前推送模式：${currentMode.toUpperCase()}\n\n` +
+          `📝 ${modeDescription}\n\n` +
+          `🔄 可用模式：\n` +
+          `• smart - 智能模式（推荐）\n` +
+          `• both - 双重推送\n` +
+          `• private - 仅私聊\n` +
+          `• targets - 仅目标\n\n` +
+          `💡 用法：/pushmode <模式>\n` +
+          `💡 示例：/pushmode smart`;
+      
+        await this.sendMessage(userId, message);
+        return;
+      }
+      
+      const mode = args[0].toLowerCase();
+      const validModes = ['smart', 'both', 'private', 'targets'];
+      
+      if (!validModes.includes(mode)) {
+        await this.sendMessage(userId, 
+          `❌ 无效的推送模式：${mode}\n\n` +
+          `✅ 可用模式：${validModes.join(', ')}`
+        );
+        return;
+      }
+      
+      // 保存用户推送模式
+      await this.dbManager.setUserPushMode(userId, mode);
+      
+      let modeDescription = '';
+      switch (mode) {
         case 'smart':
           modeDescription = '智能模式：有绑定目标时只推送到目标，无绑定时推送到私聊';
           break;
@@ -860,63 +971,17 @@ TelegramBot.prototype.handlePushModeCommand = async function (userId, args) {
         case 'targets':
           modeDescription = '仅目标：只推送到绑定的目标，不推送到私聊';
           break;
-        default:
-          modeDescription = '智能模式：有绑定目标时只推送到目标，无绑定时推送到私聊';
       }
       
-      const message = 
-        `📱 当前推送模式：${currentMode.toUpperCase()}\n\n` +
-        `📝 ${modeDescription}\n\n` +
-        `🔄 可用模式：\n` +
-        `• smart - 智能模式（推荐）\n` +
-        `• both - 双重推送\n` +
-        `• private - 仅私聊\n` +
-        `• targets - 仅目标\n\n` +
-        `💡 用法：/pushmode <模式>\n` +
-        `💡 示例：/pushmode smart`;
-      
-      await this.sendMessage(userId, message);
-      return;
-    }
-    
-    const mode = args[0].toLowerCase();
-    const validModes = ['smart', 'both', 'private', 'targets'];
-    
-    if (!validModes.includes(mode)) {
       await this.sendMessage(userId, 
-        `❌ 无效的推送模式：${mode}\n\n` +
-        `✅ 可用模式：${validModes.join(', ')}`
+        `✅ 推送模式已更新为：${mode.toUpperCase()}\n\n` +
+        `📝 ${modeDescription}\n\n` +
+        `💡 新设置将在下次RSS更新时生效`
       );
-      return;
+      
+    } catch (error) {
+      console.error('设置推送模式失败:', error);
+      await this.sendMessage(userId, '设置推送模式失败，请稍后再试');
     }
-    
-    // 保存用户推送模式
-    await this.dbManager.setUserPushMode(userId, mode);
-    
-    let modeDescription = '';
-    switch (mode) {
-      case 'smart':
-        modeDescription = '智能模式：有绑定目标时只推送到目标，无绑定时推送到私聊';
-        break;
-      case 'both':
-        modeDescription = '双重推送：同时推送到私聊和绑定的目标';
-        break;
-      case 'private':
-        modeDescription = '仅私聊：只推送到私聊，不推送到绑定的目标';
-        break;
-      case 'targets':
-        modeDescription = '仅目标：只推送到绑定的目标，不推送到私聊';
-        break;
-    }
-    
-    await this.sendMessage(userId, 
-      `✅ 推送模式已更新为：${mode.toUpperCase()}\n\n` +
-      `📝 ${modeDescription}\n\n` +
-      `💡 新设置将在下次RSS更新时生效`
-    );
-    
-  } catch (error) {
-    console.error('设置推送模式失败:', error);
-    await this.sendMessage(userId, '设置推送模式失败，请稍后再试');
   }
-};
+}
