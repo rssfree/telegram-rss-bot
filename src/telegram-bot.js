@@ -47,6 +47,18 @@ export class TelegramBot {
         await this.handleDeleteCommand(userId, args);
         break;
       
+      case '/testenhanced':
+        await this.handleEnhancedTestCommand(userId, args);
+        break;
+      
+      case '/forceadd':
+        await this.handleForceAddCommand(userId, args);
+        break;
+      
+      case '/diagnose':
+        await this.handleDiagnoseCommand(userId, args);
+        break;
+      
       case '/proxy':
         await this.handleProxyCommand(userId, args);
         break;
@@ -104,6 +116,8 @@ export class TelegramBot {
           '📖 帮助信息：\n\n' +
           '🔗 /add <RSS链接> - 添加单个RSS订阅\n' +
           '🔗 /add <链接1> <链接2> ... - 添加多个RSS订阅\n' +
+          '🚀 /forceadd <RSS链接> - 强制添加RSS源（绕过检查）\n' +
+          '🔬 /testenhanced <RSS链接> - 增强测试（模拟浏览器）\n' +
           '📝 /list - 查看所有订阅\n' +
           '🗑 /del <编号> - 删除单个订阅\n' +
           '🗑 /del <编号1> <编号2> ... - 删除多个订阅\n' +
@@ -112,6 +126,7 @@ export class TelegramBot {
           '🔗 /bind <订阅号> <目标号,目标号> - 绑定订阅\n' +
           '❌ /unbind <订阅号> - 解除绑定\n' +
           '🔧 /proxy <RSS链接> - 测试RSS源访问情况\n' +
+          '🔍 /diagnose <RSS链接> - 详细诊断RSS源问题\n' +
           '⚠️ /failed - 查看失败的RSS订阅\n' +
           '📊 /stats - 查看统计信息\n' +
           '📈 /status - 查看RSS源状态报告\n' +
@@ -215,32 +230,465 @@ export class TelegramBot {
     await this.sendMessage(userId, message);
   }
 
-  // 测试RSS源可访问性
+  // 增强测试命令 - 模拟无头浏览器行为
+  async handleEnhancedTestCommand(userId, args) {
+    if (args.length === 0) {
+      await this.sendMessage(userId, 
+        '🔬 增强测试命令：\n\n' +
+        '📝 用法：/testenhanced <RSS链接>\n' +
+        '🎯 功能：使用最强反反爬虫策略测试RSS源\n' +
+        '🤖 模拟：无头浏览器行为、完整会话管理\n\n' +
+        '💡 示例：/testenhanced https://www.bboy.app/atom.xml'
+      );
+      return;
+    }
+
+    const url = args[0];
+    if (!this.isValidUrl(url)) {
+      await this.sendMessage(userId, '❌ 无效的URL格式');
+      return;
+    }
+
+    await this.sendMessage(userId, '🔬 正在使用增强策略测试，可能需要更长时间...');
+
+    try {
+      // 使用增强的解析器
+      const result = await this.performEnhancedTest(url);
+      
+      let message = `🔬 增强测试结果：\n\n`;
+      message += `🔗 URL: ${url}\n\n`;
+      
+      // 显示各种策略的测试结果
+      for (const [strategy, result_data] of Object.entries(result.strategies)) {
+        const status = result_data.success ? '✅' : '❌';
+        message += `${status} ${strategy}: ${result_data.status || result_data.error}\n`;
+        
+        if (result_data.success && result_data.itemCount) {
+          message += `   📊 找到 ${result_data.itemCount} 个条目\n`;
+          if (result_data.sampleTitle) {
+            message += `   📄 示例: ${result_data.sampleTitle.substring(0, 50)}...\n`;
+          }
+        }
+        message += `\n`;
+      }
+      
+      // 总结
+      if (result.bestStrategy) {
+        message += `🏆 最佳策略: ${result.bestStrategy}\n`;
+        message += `💡 建议: 该RSS源可以通过增强策略访问\n`;
+        message += `🚀 可尝试: /forceadd ${url}`;
+      } else {
+        message += `❌ 所有策略都失败了\n`;
+        message += `💡 建议: 该网站可能需要更高级的绕过技术`;
+      }
+      
+      await this.sendMessage(userId, message);
+      
+    } catch (error) {
+      console.error('增强测试失败:', error);
+      await this.sendMessage(userId, `❌ 增强测试过程中发生错误：${error.message}`);
+    }
+  }
+
+  // 执行增强测试
+  async performEnhancedTest(url) {
+    const strategies = {
+      '标准浏览器': () => this.testWithBrowserSimulation(url, 'standard'),
+      '高级Chrome': () => this.testWithBrowserSimulation(url, 'chrome-advanced'),
+      '移动浏览器': () => this.testWithBrowserSimulation(url, 'mobile'),
+      'RSS阅读器': () => this.testWithBrowserSimulation(url, 'feedreader'),
+      '搜索引擎': () => this.testWithBrowserSimulation(url, 'crawler'),
+      '会话模拟': () => this.testWithSessionSimulation(url)
+    };
+    
+    const results = {
+      strategies: {},
+      bestStrategy: null
+    };
+    
+    // 依次测试各种策略
+    for (const [name, testFunc] of Object.entries(strategies)) {
+      try {
+        console.log(`测试策略: ${name}`);
+        const result = await testFunc();
+        results.strategies[name] = result;
+        
+        // 找到第一个成功的策略
+        if (result.success && !results.bestStrategy) {
+          results.bestStrategy = name;
+        }
+        
+        // 添加延迟避免被检测
+        await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
+        
+      } catch (error) {
+        results.strategies[name] = {
+          success: false,
+          error: error.message
+        };
+      }
+    }
+    
+    return results;
+  }
+
+  // 浏览器模拟测试
+  async testWithBrowserSimulation(url, type) {
+    const strategies = {
+      'standard': {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1'
+        }
+      },
+      'chrome-advanced': {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Cache-Control': 'max-age=0',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"'
+        }
+      },
+      'mobile': {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br'
+        }
+      },
+      'feedreader': {
+        headers: {
+          'User-Agent': 'Feedly/1.0 (+http://www.feedly.com/fetcher.html; like FeedFetcher-Google)',
+          'Accept': 'application/rss+xml, application/xml, text/xml, application/atom+xml, */*'
+        }
+      },
+      'crawler': {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        }
+      }
+    };
+    
+    const strategy = strategies[type];
+    if (!strategy) {
+      throw new Error(`未知的策略类型: ${type}`);
+    }
+    
+    // 添加网站特定的优化
+    const domain = new URL(url).hostname;
+    if (domain.includes('bboy.app')) {
+      strategy.headers['Referer'] = 'https://www.bboy.app/';
+    } else if (domain.includes('wilxx.com')) {
+      strategy.headers['Referer'] = 'https://blog.wilxx.com/';
+    }
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: strategy.headers,
+        redirect: 'follow',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        return {
+          success: false,
+          status: `HTTP ${response.status}: ${response.statusText}`
+        };
+      }
+      
+      // 尝试解析内容
+      const text = await response.text();
+      const { RSSParser } = await import('./rss-parser.js');
+      const parser = new RSSParser();
+      
+      // 预处理并解析
+      const cleanedXML = parser.preprocessXML(text);
+      const items = parser.parseXML(cleanedXML);
+      
+      return {
+        success: items.length > 0,
+        status: `HTTP 200 - 找到 ${items.length} 个条目`,
+        itemCount: items.length,
+        sampleTitle: items.length > 0 ? items[0].title : null
+      };
+      
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        return { success: false, status: '请求超时' };
+      }
+      return { success: false, status: error.message };
+    }
+  }
+
+  // 会话模拟测试 - 模拟真实用户浏览行为
+  async testWithSessionSimulation(url) {
+    try {
+      const domain = new URL(url).hostname;
+      const baseUrl = `https://${domain}`;
+      
+      // 第一步：访问主页建立会话
+      const homeHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1'
+      };
+      
+      console.log(`会话模拟: 访问主页 ${baseUrl}`);
+      
+      try {
+        const homeResponse = await fetch(baseUrl, {
+          method: 'GET',
+          headers: homeHeaders,
+          redirect: 'follow'
+        });
+        
+        // 等待一段时间模拟用户浏览
+        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+        
+      } catch (homeError) {
+        console.log('主页访问失败，继续尝试RSS');
+      }
+      
+      // 第二步：访问RSS源，带上Referer
+      const rssHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': baseUrl,
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin'
+      };
+      
+      console.log(`会话模拟: 访问RSS ${url}`);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: rssHeaders,
+        redirect: 'follow',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        return {
+          success: false,
+          status: `HTTP ${response.status}: ${response.statusText}`
+        };
+      }
+      
+      // 解析RSS内容
+      const text = await response.text();
+      const { RSSParser } = await import('./rss-parser.js');
+      const parser = new RSSParser();
+      
+      const cleanedXML = parser.preprocessXML(text);
+      const items = parser.parseXML(cleanedXML);
+      
+      return {
+        success: items.length > 0,
+        status: `会话模拟成功 - 找到 ${items.length} 个条目`,
+        itemCount: items.length,
+        sampleTitle: items.length > 0 ? items[0].title : null
+      };
+      
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        return { success: false, status: '会话模拟超时' };
+      }
+      return { success: false, status: `会话模拟失败: ${error.message}` };
+    }
+  }
+
+  // RSS源测试方法 - 使用增强策略测试RSS源可访问性
   async testRSSSource(url) {
     try {
-      // 动态导入避免循环依赖
+      // 动态导入RSS解析器
       const { RSSParser } = await import('./rss-parser.js');
-      const rssParser = new RSSParser();
+      const parser = new RSSParser();
       
-      // 尝试获取第一条内容以验证
-      const items = await rssParser.parseRSS(url);
+      // 尝试解析RSS源
+      const items = await parser.parseRSS(url);
       
       if (items.length > 0) {
-        return { 
-          accessible: true, 
-          siteName: await this.extractSiteName(url)
+        return {
+          accessible: true,
+          siteName: await this.extractSiteName(url),
+          itemCount: items.length
         };
       } else {
-        return { 
-          accessible: false, 
-          error: 'RSS源无内容或格式错误' 
+        return {
+          accessible: false,
+          error: 'RSS源中没有找到任何内容',
+          siteName: await this.extractSiteName(url)
         };
       }
     } catch (error) {
-      return { 
-        accessible: false, 
-        error: error.message 
+      console.log(`RSS源测试失败 ${url}: ${error.message}`);
+      return {
+        accessible: false,
+        error: error.message,
+        siteName: await this.extractSiteName(url)
       };
+    }
+  }
+
+  async handleForceAddCommand(userId, args) {
+    if (args.length === 0) {
+      await this.sendMessage(userId, 
+        '🚀 强制添加RSS源命令：\n\n' +
+        '📝 用法：/forceadd <RSS链接>\n' +
+        '⚠️ 注意：该命令会绕过初始可访问性检查\n' +
+        '🎯 适用于：诊断显示可访问但添加失败的RSS源\n\n' +
+        '💡 建议：先使用 /diagnose 命令诊断问题'
+      );
+      return;
+    }
+
+    let addedCount = 0;
+    let duplicateCount = 0;
+    let errorCount = 0;
+    const results = [];
+
+    for (const url of args) {
+      try {
+        if (!this.isValidUrl(url)) {
+          results.push(`❌ 无效链接：${url}`);
+          errorCount++;
+          continue;
+        }
+
+        // 直接尝试添加，不进行初始检查
+        const siteName = await this.extractSiteName(url);
+        const added = await this.dbManager.addSubscription(userId, url, siteName);
+        
+        if (added) {
+          results.push(`✅ 强制添加成功：${siteName}`);
+          addedCount++;
+          
+          // 添加成功后，尝试测试解析
+          try {
+            const { RSSParser } = await import('./rss-parser.js');
+            const rssParser = new RSSParser();
+            const items = await rssParser.parseRSS(url);
+            
+            if (items.length > 0) {
+              results.push(`  ✅ 解析成功：找到 ${items.length} 个条目`);
+              results.push(`  ℹ️ 示例标题：${items[0].title}`);
+            } else {
+              results.push(`  ⚠️ 解析警告：未找到内容，可能需要等待网站更新`);
+            }
+          } catch (parseError) {
+            results.push(`  ⚠️ 解析警告：${parseError.message}`);
+          }
+        } else {
+          results.push(`⚠️ 已订阅：${siteName}`);
+          duplicateCount++;
+        }
+      } catch (error) {
+        results.push(`❌ 强制添加失败：${url} - ${error.message}`);
+        errorCount++;
+      }
+    }
+
+    let summary = `🚀 强制添加结果：\n✅ 新增：${addedCount}个\n⚠️ 重复：${duplicateCount}个\n❌ 失败：${errorCount}个\n\n`;
+    const message = summary + results.join('\n');
+    
+    await this.sendMessage(userId, message);
+    
+    if (addedCount > 0) {
+      await this.sendMessage(userId, 
+        '📝 提示：\n' +
+        '• 强制添加的RSS源将在下次定时检查时尝试解析\n' +
+        '• 如果解析持续失败，将被标记为失效订阅\n' +
+        '• 可使用 /failed 命令查看失效订阅'
+      );
+    }
+  }
+  async handleDiagnoseCommand(userId, args) {
+    if (args.length === 0) {
+      await this.sendMessage(userId, 
+        '🔍 RSS源诊断命令：\n\n' +
+        '📝 用法：/diagnose <RSS链接>\n' +
+        '🎯 功能：详细分析RSS源添加失败的原因\n' +
+        '📊 显示：网络连接、HTTP响应、内容格式、解析结果等\n\n' +
+        '💡 示例：/diagnose https://linux.do/latest.rss'
+      );
+      return;
+    }
+
+    const url = args[0];
+    if (!this.isValidUrl(url)) {
+      await this.sendMessage(userId, '❌ 无效的URL格式');
+      return;
+    }
+
+    await this.sendMessage(userId, '🔍 正在进行详细诊断，请稍候...');
+
+    try {
+      // 动态导入诊断工具
+      const { RSSDiagnostics } = await import('./rss-diagnostics.js');
+      const diagnostics = new RSSDiagnostics();
+      
+      // 执行完整诊断
+      const result = await diagnostics.diagnoseRSSSource(url);
+      
+      // 生成并发送诊断报告
+      const report = diagnostics.generateReport(result);
+      await this.sendMessage(userId, report);
+      
+      // 如果诊断成功但之前添加失败，提供添加建议
+      if (result.accessible) {
+        await this.sendMessage(userId, 
+          '✅ 诊断显示RSS源可以访问！\n\n' +
+          '💡 如果之前添加失败，可能是临时网络问题。\n' +
+          '🔄 建议现在重新尝试添加该RSS源。'
+        );
+      }
+      
+    } catch (error) {
+      console.error('诊断过程失败:', error);
+      await this.sendMessage(userId, `❌ 诊断过程中发生错误：${error.message}`);
     }
   }
 
